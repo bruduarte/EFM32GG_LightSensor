@@ -323,11 +323,13 @@ int main(void)
 
   /* Go to infinite loop. */
   while (1) {
-	  uint32_t lastResult = LESENSE_ScanResultGet();
-	  bool hasLight = lastResult & LESENSE_IF_CH6;
+	  uint32_t lastResult = LESENSE_ScanResultGet(); //returns the last sensor comparison against the threshold.
+	  bool hasLight = (lastResult & LESENSE_IF_CH6) != 0; //check is the channel 6 bit is set (Light detector).
 
 	  switch (actual_mode){
 	  case Mode_automatic:
+		  /*Changes the status of the LED based on the Light detector*/
+
 		  if (!hasLight){
 			  //BSP_LedSet(int ledNo)
 			  BSP_LedSet(LIGHT_PIN);
@@ -339,6 +341,7 @@ int main(void)
 		  break;
 
 	  case Mode_manual:
+		  /*Changes the status of the LED based on the button*/
 	  default:
 		  SegmentLCD_Write("MANUAL");
 		  if (trackButton1){
