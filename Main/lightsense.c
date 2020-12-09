@@ -30,20 +30,16 @@
 #include "em_core.h"
 #include "em_lcd.h"
 #include "em_lesense.h"
-#include "em_pcnt.h"
 #include "em_prs.h"
 #include "em_rtc.h"
-
 #include "segmentlcd.h"
-#include "bsp_trace.h"
 #include "lightsense_conf.h"
+#include "bsp_stk_buttons.h"
 
 /***************************************************************************//**
  * Macro definitions
  ******************************************************************************/
 #define LESENSE_SCANFREQ_CALC_TOLERANCE 0
-
-#define LIGHTSENSE_NUMOF_EVENTS  5U
 
 #define LIGHTSENSE_EXCITE_PORT   gpioPortD
 #define LIGHTSENSE_EXCITE_PIN    6U
@@ -52,16 +48,31 @@
 
 #define LIGHTSENSE_BUTTON0_PORT  gpioPortB
 #define LIGHTSENSE_BUTTON0_PIN   9U
+#define LIGHTSENSE_BUTTON1_PORT  gpioPortB
+#define LIGHTSENSE_BUTTON1_PIN   10U
 #define LIGHTSENSE_BUTTON0_FLAG  (1 << LIGHTSENSE_BUTTON0_PIN)
+#define LIGHTSENSE_BUTTON1_FLAG  (1 << LIGHTSENSE_BUTTON1_PIN)
 
 #define INIT_STATE_TIME_SEC      3U
 
+/***************************************************************************//**
+ * Datatypes
+ ******************************************************************************/
+
+enum Mode {
+
+	Mode_manual,
+	Mode_automatic
+
+};
 /***************************************************************************//**
  * Global variables
  ******************************************************************************/
 
 static volatile bool secTimerFired = false;
 static volatile uint8_t eventCounter = 0U;
+static volatile enum Mode actual_mode = Mode_automatic;
+static volatile bool trackButton1 = false;
 
 /***************************************************************************//**
  * Prototypes
@@ -133,8 +144,16 @@ void setupGPIO(void)
   GPIO_PinModeSet(LIGHTSENSE_BUTTON0_PORT, LIGHTSENSE_BUTTON0_PIN, gpioModeInput, 0);
   /* Enable interrupts for that pin. */
   GPIO_IntConfig(LIGHTSENSE_BUTTON0_PORT, LIGHTSENSE_BUTTON0_PIN, false, true, true);
-  /* Enable GPIO_EVEN interrupt vector in NVIC. */
+  /* Enable GPIO_ODD interrupt vector in NVIC. */
   NVIC_EnableIRQ(GPIO_ODD_IRQn);
+
+  /* Enable push button 1 pin as input. */
+  GPIO_PinModeSet(LIGHTSENSE_BUTTON1_PORT, LIGHTSENSE_BUTTON1_PIN, gpioModeInput, 0);
+  /* Enable interrupts for that pin. */
+  GPIO_IntConfig(LIGHTSENSE_BUTTON1_PORT, LIGHTSENSE_BUTTON1_PIN, false, true, true);
+  /* Enable GPIO_EVEN interrupt vector in NVIC. */
+  NVIC_EnableIRQ(GPIO_EVEN_IRQn);
+
 }
 
 /***************************************************************************//**
@@ -267,38 +286,7 @@ void setupPRS(void)
                            PRS_CH_CTRL_SIGSEL_LESENSESCANRES6);
 }
 
-/***************************************************************************//**
- * @brief  Setup the PCNT
- ******************************************************************************/
-void setupPCNT(void)
-{
-  /* PCNT configuration constant table. */
-  static const PCNT_Init_TypeDef initPCNT =
-  {
-    .mode = pcntModeOvsSingle, /* Oversampling, single mode. */
-    .counter = 0U, /* Counter value has been initialized to 0. */
-    .top = LIGHTSENSE_NUMOF_EVENTS, /* Counter top value. */
-    .negEdge = false, /* Use positive edge. */
-    .countDown = false, /* Up-counting. */
-    .filter = false, /* Filter disabled. */
-    .hyst = false, /* Hysteresis disabled. */
-    .s1CntDir = false, /* Counter direction is given by CNTDIR. */
-    .cntEvent = pcntCntEventUp, /* Regular counter counts up on upcount events. */
-    .auxCntEvent = pcntCntEventNone, /* Auxiliary counter doesn't respond to events. */
-    .s0PRS = pcntPRSCh0, /* PRS channel 0 selected as S0IN. */
-    .s1PRS = pcntPRSCh0  /* PRS channel 0 selected as S1IN. */
-  };
 
-  /* Initialize PCNT. */
-  PCNT_Init(PCNT0, &initPCNT);
-  /* Enable PRS input S0 in PCNT. */
-  PCNT_PRSInputEnable(PCNT0, pcntPRSInputS0, true);
-
-  /* Enable the PCNT peripheral. */
-  PCNT_Enable(PCNT0, pcntModeOvsSingle);
-  /* Enable the PCNT overflow interrupt. */
-  PCNT_IntEnable(PCNT0, PCNT_IEN_OF);
-}
 
 /***************************************************************************//**
  * @brief  Setup the RTC
@@ -335,12 +323,11 @@ int main(void)
   /* Chip errata */
   CHIP_Init();
 
-  /* If first word of user data page is non-zero, enable Energy Profiler trace */
-  BSP_TraceProfilerSetup();
+  /* Initialize LED driver */
+  BSP_LedsInit();
 
   /* Disable interrupts */
   CORE_ENTER_ATOMIC();
-
   /* Setup CMU. */
   setupCMU();
   /* Setup GPIO. */
@@ -349,8 +336,6 @@ int main(void)
   setupACMP();
   /* Setup PRS. */
   setupPRS();
-  /* Setup PCNT. */
-  setupPCNT();
   /* Setup LESENSE. */
   setupLESENSE();
   /* Setup RTC. */
@@ -362,7 +347,7 @@ int main(void)
   /* Enable RTC interrupt in NVIC. */
   NVIC_EnableIRQ(RTC_IRQn);
   /* Enable PCNT0 interrupt in NVIC. */
-  NVIC_EnableIRQ(PCNT0_IRQn);
+ // NVIC_EnableIRQ(PCNT0_IRQn);
 
   /* Initialization done, enable interrupts globally. */
   CORE_EXIT_ATOMIC();
@@ -384,6 +369,8 @@ int main(void)
 
 
 
+
+
   }
 }
 
@@ -396,20 +383,7 @@ void LESENSE_IRQHandler(void)
   if (LESENSE_IF_CH6 & LESENSE_IntGetEnabled()) {
     LESENSE_IntClear(LESENSE_IF_CH6);
   }
-
     eventCounter++;
-
-
-}
-
-/***************************************************************************//**
- * @brief  PCNT interrupt handler
- ******************************************************************************/
-void PCNT0_IRQHandler(void)
-{
-  /* Overflow interrupt on PCNT0. */
-  PCNT_IntClear(PCNT0, PCNT_IF_OF);
-
 }
 
 /***************************************************************************//**
@@ -432,12 +406,30 @@ void RTC_IRQHandler(void)
 }
 
 /***************************************************************************//**
- * @brief  GPIO even interrupt handler (for handling button events)
+ * @brief  GPIO odd interrupt handler (for handling button events)
  ******************************************************************************/
 void GPIO_ODD_IRQHandler(void)
 {
   /* Clear interrupt flag */
   GPIO_IntClear(LIGHTSENSE_BUTTON0_FLAG);
 
+  /* Change the mode */
+  if (actual_mode == Mode_automatic){
+	  actual_mode = Mode_manual;
+  }
+  else if (actual_mode == Mode_manual){
+	  actual_mode = Mode_automatic;
+  }
+}
 
+/***************************************************************************//**
+ * @brief  GPIO even interrupt handler (for handling button events)
+ ******************************************************************************/
+void GPIO_EVEN_IRQHandler(void)
+{
+  /* Clear interrupt flag */
+  GPIO_IntClear(LIGHTSENSE_BUTTON1_FLAG);
+
+  trackButton1 = true;
+  BSP_LedToggle (0);
 }
