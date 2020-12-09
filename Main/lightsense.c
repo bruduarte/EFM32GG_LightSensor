@@ -73,6 +73,9 @@ static volatile bool secTimerFired = false;
 static volatile uint8_t eventCounter = 0U;
 static volatile enum Mode actual_mode = Mode_automatic;
 static volatile bool trackButton1 = false;
+static volatile bool lightDetected = false;
+static volatile uint32_t msTicks = 0; /* counts 1ms timeTicks */
+static volatile uint32_t msSinceLightDetected = 0;
 
 /***************************************************************************//**
  * Prototypes
@@ -168,7 +171,7 @@ void setupACMP(void)
     .halfBias = true,                  /* halfBias */
     .biasProg =  0x0,                  /* biasProg */
     .interruptOnFallingEdge =  false,  /* interrupt on rising edge */
-    .interruptOnRisingEdge =  false,   /* interrupt on falling edge */
+    .interruptOnRisingEdge =  true,   /* interrupt on falling edge */
     .warmTime = acmpWarmTime512,       /* 512 cycle warmup to be safe */
     .hysteresisLevel = acmpHysteresisLevel0, /* hysteresis level 0 */
     .inactiveValue = false,            /* inactive value */
@@ -184,7 +187,16 @@ void setupACMP(void)
   /* Set up ACMP negSel to VDD, posSel is controlled by LESENSE. */
   ACMP_ChannelSet(ACMP0, acmpChannelVDD, acmpChannel0);
   /* LESENSE controls ACMP thus ACMP_Enable(ACMP0) should NOT be called in order
-   * to ensure lower current consumption. */
+   * to ensure lower current consumption.
+   * ERRATA: we do not need low power now, thus ACMP_Enable(ACMP0) will be called in order to get the ACMP
+   * interruptions*/
+
+   ACMP_IntEnable(ACMP0, ACMP_IEN_EDGE);   /* Enable edge interrupt */
+   /* Enable interrupts */
+   NVIC_ClearPendingIRQ(ACMP0_IRQn);
+   NVIC_EnableIRQ(ACMP0_IRQn);
+   ACMP_Enable(ACMP0);
+
 }
 
 /***************************************************************************//**
@@ -403,6 +415,18 @@ void RTC_IRQHandler(void)
     /* ...and set the global flag. */
     secTimerFired = true;
   }
+}
+
+/**************************************************************************//**
+ * @brief ACMP0 Interrupt handler
+ *****************************************************************************/
+void ACMP0_IRQHandler(void)
+{
+  /* Clear interrupt flag */
+  ACMP0->IFC = ACMP_IFC_EDGE;
+
+  lightDetected = true;
+  msSinceLightDetected = 0; // timestamp reset since last detection
 }
 
 /***************************************************************************//**
