@@ -50,7 +50,7 @@
 #define LIGHTSENSE_BUTTON1_PIN   10U
 #define LIGHTSENSE_BUTTON0_FLAG  (1 << LIGHTSENSE_BUTTON0_PIN)
 #define LIGHTSENSE_BUTTON1_FLAG  (1 << LIGHTSENSE_BUTTON1_PIN)
-
+#define LIGHT_PIN 				 0
 
 
 /***************************************************************************//**
@@ -67,7 +67,6 @@ enum Mode {
  * Global variables
  ******************************************************************************/
 
-static volatile bool secTimerFired = false;
 static volatile uint8_t eventCounter = 0U;
 static volatile enum Mode actual_mode = Mode_automatic;
 static volatile bool trackButton1 = false;
@@ -342,11 +341,30 @@ int main(void)
 
   /* Go to infinite loop. */
   while (1) {
+	  uint32_t lastResult = LESENSE_ScanResultGet();
+	  bool hasLight = lastResult & LESENSE_IF_CH6;
 
-      /* Write the number of counts. */
-      SegmentLCD_Number(eventCounter);
+	  switch (actual_mode){
+	  case Mode_automatic:
+		  if (!hasLight){
+			  //BSP_LedSet(int ledNo)
+			  BSP_LedSet(LIGHT_PIN);
+		  }else {
 
+			  BSP_LedClear(LIGHT_PIN);
+		  }
+		  SegmentLCD_Write("AUTO");
+		  break;
 
+	  case Mode_manual:
+	  default:
+		  SegmentLCD_Write("MANUAL");
+		  if (trackButton1){
+			  BSP_LedToggle(LIGHT_PIN);
+			  trackButton1 = false;
+		  }
+		  break;
+	  }
 
 
 
@@ -417,5 +435,4 @@ void GPIO_EVEN_IRQHandler(void)
   GPIO_IntClear(LIGHTSENSE_BUTTON1_FLAG);
 
   trackButton1 = true;
-  BSP_LedToggle (0);
 }
