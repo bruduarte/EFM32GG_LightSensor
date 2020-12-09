@@ -151,7 +151,7 @@ void setupACMP(void)
     .interruptOnFallingEdge =  false,  /* interrupt on rising edge */
     .interruptOnRisingEdge =  false,   /* interrupt on falling edge */
     .warmTime = acmpWarmTime512,       /* 512 cycle warmup to be safe */
-    .hysteresisLevel = acmpHysteresisLevel5, /* hysteresis level 5 */
+    .hysteresisLevel = acmpHysteresisLevel0, /* hysteresis level 0 */
     .inactiveValue = false,            /* inactive value */
     .lowPowerReferenceEnabled = false, /* low power reference */
     .vddLevel = 0x00,                  /* VDD level */
