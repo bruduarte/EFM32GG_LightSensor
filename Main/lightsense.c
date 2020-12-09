@@ -31,7 +31,6 @@
 #include "em_lcd.h"
 #include "em_lesense.h"
 #include "em_prs.h"
-#include "em_rtc.h"
 #include "segmentlcd.h"
 #include "lightsense_conf.h"
 #include "bsp_stk_buttons.h"
@@ -39,13 +38,12 @@
 /***************************************************************************//**
  * Macro definitions
  ******************************************************************************/
-#define LESENSE_SCANFREQ_CALC_TOLERANCE 0
+
 
 #define LIGHTSENSE_EXCITE_PORT   gpioPortD
 #define LIGHTSENSE_EXCITE_PIN    6U
 #define LIGHTSENSE_SENSOR_PORT   gpioPortC
 #define LIGHTSENSE_SENSOR_PIN    6U
-
 #define LIGHTSENSE_BUTTON0_PORT  gpioPortB
 #define LIGHTSENSE_BUTTON0_PIN   9U
 #define LIGHTSENSE_BUTTON1_PORT  gpioPortB
@@ -53,7 +51,7 @@
 #define LIGHTSENSE_BUTTON0_FLAG  (1 << LIGHTSENSE_BUTTON0_PIN)
 #define LIGHTSENSE_BUTTON1_FLAG  (1 << LIGHTSENSE_BUTTON1_PIN)
 
-#define INIT_STATE_TIME_SEC      3U
+
 
 /***************************************************************************//**
  * Datatypes
@@ -81,7 +79,6 @@ static volatile uint32_t msSinceLightDetected = 0;
  * Prototypes
  ******************************************************************************/
 void LESENSE_IRQHandler(void);
-void RTC_IRQHandler(void);
 void GPIO_ODD_IRQHandler(void);
 
 void setupCMU(void);
@@ -89,7 +86,7 @@ void setupGPIO(void);
 void setupACMP(void);
 void setupLESENSE(void);
 void setupPRS(void);
-void setupRTC(void);
+
 
 /***************************************************************************//**
  * @brief  Setup the CMU
@@ -120,14 +117,11 @@ void setupCMU(void)
   CMU_ClockEnable(cmuClock_CORELE, true);
   /* Enable clock for PCNT. */
   CMU_ClockEnable(cmuClock_PCNT0, true);
-  /* Enable clock on RTC. */
-  CMU_ClockEnable(cmuClock_RTC, true);
   /* Enable clock for LESENSE. */
   CMU_ClockEnable(cmuClock_LESENSE, true);
   /* Enable clock divider for LESENSE. */
   CMU_ClockDivSet(cmuClock_LESENSE, cmuClkDiv_1);
-  /* Enable clock divider for RTC. */
-  CMU_ClockDivSet(cmuClock_RTC, cmuClkDiv_32768);
+
 }
 
 /***************************************************************************//**
@@ -300,30 +294,7 @@ void setupPRS(void)
 
 
 
-/***************************************************************************//**
- * @brief  Setup the RTC
- ******************************************************************************/
-void setupRTC(void)
-{
-  /* RTC configuration constant table. */
-  static const RTC_Init_TypeDef initRTC = RTC_INIT_DEFAULT;
 
-  /* Initialize RTC. */
-  RTC_Init(&initRTC);
-
-  /* Set COMP0 to overflow at the configured value (in seconds). */
-  RTC_CompareSet(0, (uint32_t)CMU_ClockFreqGet(cmuClock_RTC)
-                 * (uint32_t)INIT_STATE_TIME_SEC);
-
-  /* Make sure that all pending interrupt is cleared. */
-  RTC_IntClear(0xFFFFFFFFUL);
-
-  /* Enable interrupt for COMP0. */
-  RTC_IntEnable(RTC_IEN_COMP0);
-
-  /* Finally enable RTC. */
-  RTC_Enable(true);
-}
 
 /***************************************************************************//**
  * @brief  Main function
@@ -350,28 +321,24 @@ int main(void)
   setupPRS();
   /* Setup LESENSE. */
   setupLESENSE();
-  /* Setup RTC. */
-  setupRTC();
+
 
   /* Initialize segment LCD. */
   SegmentLCD_Init(false);
 
-  /* Enable RTC interrupt in NVIC. */
-  NVIC_EnableIRQ(RTC_IRQn);
-  /* Enable PCNT0 interrupt in NVIC. */
- // NVIC_EnableIRQ(PCNT0_IRQn);
 
   /* Initialization done, enable interrupts globally. */
   CORE_EXIT_ATOMIC();
 
 
-  /* Enable clock for RTC. */
-   CMU_ClockEnable(cmuClock_RTC, true);
-  /* Enable RTC. */
-   RTC_Enable(true);
-
    /* Enable LESENSE interrupt in NVIC. */
    NVIC_EnableIRQ(LESENSE_IRQn);
+
+   /* Setup SysTick Timer for 1 msec interrupts  */
+   if (SysTick_Config(CMU_ClockFreqGet(cmuClock_CORE) / 1000)) {
+       // stay here forever if this configuration fails
+     while (1) ;
+   }
 
   /* Go to infinite loop. */
   while (1) {
@@ -398,24 +365,6 @@ void LESENSE_IRQHandler(void)
     eventCounter++;
 }
 
-/***************************************************************************//**
- * @brief  RTC common interrupt handler
- ******************************************************************************/
-void RTC_IRQHandler(void)
-{
-  uint32_t tmp;
-
-  /* Store enabled interrupts in temp variable. */
-  tmp = RTC->IEN;
-
-  /* Check if COMP0 interrupt is enabled and set. */
-  if (RTC_IF_COMP0 & (tmp & RTC_IntGet())) {
-    /* Timer has fired, clear interrupt flag... */
-    RTC_IntClear(RTC_IFC_COMP0);
-    /* ...and set the global flag. */
-    secTimerFired = true;
-  }
-}
 
 /**************************************************************************//**
  * @brief ACMP0 Interrupt handler
@@ -428,6 +377,19 @@ void ACMP0_IRQHandler(void)
   lightDetected = true;
   msSinceLightDetected = 0; // timestamp reset since last detection
 }
+
+/***************************************************************************//**
+ * @brief SysTick_Handler
+ *   Interrupt Service Routine for system tick counter
+ * @note
+ *   No overflow protection
+ ******************************************************************************/
+void SysTick_Handler(void)
+{
+  msTicks++;       /* increment counter necessary in Delay()*/
+  msSinceLightDetected++;
+}
+
 
 /***************************************************************************//**
  * @brief  GPIO odd interrupt handler (for handling button events)
