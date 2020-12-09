@@ -25,7 +25,6 @@
 #include "em_assert.h"
 #include "em_chip.h"
 #include "em_cmu.h"
-#include "em_emu.h"
 #include "em_gpio.h"
 #include "em_core.h"
 #include "em_lcd.h"
@@ -75,7 +74,7 @@ static volatile bool trackButton1 = false;
 /***************************************************************************//**
  * Prototypes
  ******************************************************************************/
-void LESENSE_IRQHandler(void);
+
 void GPIO_ODD_IRQHandler(void);
 
 void setupCMU(void);
@@ -84,7 +83,10 @@ void setupACMP(void);
 void setupLESENSE(void);
 void setupPRS(void);
 
-
+extern int BSP_LedSet(int ledNo);
+extern int BSP_LedClear(int ledNo);
+extern int BSP_LedsInit(void);
+extern int BSP_LedToggle(int ledNo);
 /***************************************************************************//**
  * @brief  Setup the CMU
  ******************************************************************************/

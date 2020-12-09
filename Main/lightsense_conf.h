@@ -26,7 +26,7 @@ extern "C" {
   {                                                                                                     \
     true,                    /* Enable scan channel. */                                                 \
     false,                   /* Enable the assigned pin on scan channel. */                             \
-    true,                    /* Enable interrupts on channel. */                                        \
+    false,                    /* Enable interrupts on channel. */                                        \
     lesenseChPinExHigh,      /* GPIO pin is high during the excitation period. */                       \
     lesenseChPinIdleDis,     /* GPIO pin is low during the idle period. */                              \
     true,                    /* Use alternate excitation pins for excitation. */                        \
@@ -40,7 +40,7 @@ extern "C" {
     0x00U,                   /* Measure delay is set to 0 excitation clock cycles.*/                    \
     0x38U,                   /* ACMP threshold has been set to 0x38. */                                 \
     lesenseSampleModeACMP,   /* ACMP will be used in comparison. */                                     \
-    lesenseSetIntNegEdge,    /* Interrupt is generated if the sensor triggers. */                       \
+	lesenseSetIntNegEdge,    /* Interrupt is generated if the sensor triggers. */                       \
     0x0000U,                 /* Counter threshold has been set to 0x00. */                              \
     lesenseCompModeLess      /* Compare mode has been set to trigger interrupt on "less". */            \
   }
