@@ -44,11 +44,6 @@
 #define LESENSE_SCANFREQ_CALC_TOLERANCE 0
 
 #define LIGHTSENSE_NUMOF_EVENTS  5U
-#define LIGHTSENSE_NUMOF_MODES   2U
-
-#define LIGHTSENSE_EXAMPLE_TEXT  "LIGHT"
-#define LIGHTSENSE_MODE0_TEXT    "MODE0"
-#define LIGHTSENSE_MODE1_TEXT    "MODE1"
 
 #define LIGHTSENSE_EXCITE_PORT   gpioPortD
 #define LIGHTSENSE_EXCITE_PIN    6U
@@ -61,28 +56,10 @@
 
 #define INIT_STATE_TIME_SEC      3U
 
-/* Type definition for global state. */
-typedef enum {
-  MODE0 = 0,
-  MODE1 = 1
-} LIGHTSENSE_GlobalMode_TypeDef;
-
-/* Type definition for global state. */
-typedef enum {
-  ERROR_STATE = -1,
-  INIT_STATE = 0,
-  TIMER_RESET_STATE = 1,
-  AWAKE_STATE = 2,
-  SENSE_PREPARE_STATE = 3,
-  SENSE_STATE = 4,
-  BUTTON0_PRESS_STATE = 5
-} LIGHTSENSE_GlobalState_TypeDef;
-
 /***************************************************************************//**
  * Global variables
  ******************************************************************************/
-static volatile LIGHTSENSE_GlobalMode_TypeDef appModeGlobal = MODE0;
-static volatile LIGHTSENSE_GlobalState_TypeDef appStateGlobal = INIT_STATE;
+
 static volatile bool secTimerFired = false;
 static volatile uint8_t eventCounter = 0U;
 
@@ -90,16 +67,14 @@ static volatile uint8_t eventCounter = 0U;
  * Prototypes
  ******************************************************************************/
 void LESENSE_IRQHandler(void);
-void PCNT0_IRQHandler(void);
 void RTC_IRQHandler(void);
-void GPIO_EVEN_IRQHandler(void);
+void GPIO_ODD_IRQHandler(void);
 
 void setupCMU(void);
 void setupGPIO(void);
 void setupACMP(void);
 void setupLESENSE(void);
 void setupPRS(void);
-void setupPCNT(void);
 void setupRTC(void);
 
 /***************************************************************************//**
@@ -152,7 +127,7 @@ void setupGPIO(void)
 
   /* Initialize the 2 GPIO pins of the light sensor setup. */
   GPIO_PinModeSet(LIGHTSENSE_EXCITE_PORT, LIGHTSENSE_EXCITE_PIN, gpioModePushPull, 0);
-  GPIO_PinModeSet(LIGHTSENSE_SENSOR_PORT, LIGHTSENSE_SENSOR_PIN, gpioModeDisabled, 0);
+  GPIO_PinModeSet(LIGHTSENSE_SENSOR_PORT, LIGHTSENSE_SENSOR_PIN, gpioModeDisabled, 0); //The analog path, which is before the digital input path, remains active, i.e. a pin should be configured as GPIO disabled if you want to use it's analog input/output functionality).
 
   /* Enable push button 0 pin as input. */
   GPIO_PinModeSet(LIGHTSENSE_BUTTON0_PORT, LIGHTSENSE_BUTTON0_PIN, gpioModeInput, 0);
@@ -392,223 +367,23 @@ int main(void)
   /* Initialization done, enable interrupts globally. */
   CORE_EXIT_ATOMIC();
 
+
+  /* Enable clock for RTC. */
+   CMU_ClockEnable(cmuClock_RTC, true);
+  /* Enable RTC. */
+   RTC_Enable(true);
+
+   /* Enable LESENSE interrupt in NVIC. */
+   NVIC_EnableIRQ(LESENSE_IRQn);
+
   /* Go to infinite loop. */
   while (1) {
-    /* Mode0 (default on start-up). */
-    if (appModeGlobal == MODE0) {
-      switch (appStateGlobal) {
-        case BUTTON0_PRESS_STATE:
-        {
-          /* Enable clock for RTC. */
-          CMU_ClockEnable(cmuClock_RTC, true);
-          /* Enable RTC. */
-          RTC_Enable(true);
-          /* Initialize segment LCD. */
-          SegmentLCD_Init(false);
-          /* Turn all LCD segments off. */
-          SegmentLCD_AllOff();
-          /* Turn on the EM0 symbol. */
-          SegmentLCD_EnergyMode(0, true);
-          /* Turn on the gecko. */
-          SegmentLCD_Symbol(LCD_SYMBOL_GECKO, true);
-          /* Write text on LCD. */
-          SegmentLCD_Write(LIGHTSENSE_MODE0_TEXT);
-          /* Go to TIMER_RESET_STATE to reset the global timer. */
-          appStateGlobal = TIMER_RESET_STATE;
-        }
-        break;
 
-        case INIT_STATE:
-        {
-          /* Enable clock for RTC. */
-          CMU_ClockEnable(cmuClock_RTC, true);
-          /* Enable RTC. */
-          RTC_Enable(true);
-          /* Initialize segment LCD. */
-          SegmentLCD_Init(false);
-          /* Turn all LCD segments off. */
-          SegmentLCD_AllOff();
-          /* Turn on the EM0 symbol. */
-          SegmentLCD_EnergyMode(0, true);
-          /* Turn on the gecko. */
-          SegmentLCD_Symbol(LCD_SYMBOL_GECKO, true);
-          /* Write text on LCD. */
-          SegmentLCD_Write(LIGHTSENSE_EXAMPLE_TEXT);
-          /* Go to TIMER_RESET_STATE to reset the global timer. */
-          appStateGlobal = TIMER_RESET_STATE;
-        }
-        break;
+      /* Write the number of counts. */
+      SegmentLCD_Number(eventCounter);
 
-        case TIMER_RESET_STATE:
-        {
-          /* Enable LESENSE interrupt in NVIC. */
-          NVIC_EnableIRQ(LESENSE_IRQn);
-          /* Reset RTC counter by disabling and enabling the RTC. */
-          RTC_Enable(false);
-          RTC_Enable(true);
-          /* Go to the AWAKE_STATE. */
-          appStateGlobal = AWAKE_STATE;
-        }
-        break;
 
-        case AWAKE_STATE:
-        {
-          /* Stay awake until the timer has fired. */
-          appStateGlobal = AWAKE_STATE;
-          /* Write the number of counts. */
-          SegmentLCD_Number(eventCounter);
 
-          /* Check if timer has fired... */
-          if (secTimerFired) {
-            /* ...if so, go to SENSE_PREPARE_STATE to prepare sensing. */
-            appStateGlobal = SENSE_PREPARE_STATE;
-            /* Reset sub-state. */
-            secTimerFired = false;
-            /* Disable RTC. */
-            RTC_Enable(false);
-            /* Disable clock for RTC. */
-            CMU_ClockEnable(cmuClock_RTC, false);
-          } else {
-            EMU_EnterEM2(true);
-          }
-        }
-        break;
-
-        case SENSE_PREPARE_STATE:
-        {
-          /* Disable LCD to avoid excessive current consumption */
-          SegmentLCD_Disable();
-          /* Go to SENSE_STATE. */
-          appStateGlobal = SENSE_STATE;
-        }
-        break;
-
-        case SENSE_STATE:
-        {
-          /* Enter EM2. */
-          EMU_EnterEM2(true);
-        }
-        break;
-
-        case ERROR_STATE:
-        default:
-        {
-          /* Stay in ERROR_STATE. */
-          appStateGlobal = ERROR_STATE;
-        }
-        break;
-      }
-    }
-    /* MODE1, can be set by pressing PB0 on Tiny STK. */
-    else if (appModeGlobal == MODE1) {
-      switch (appStateGlobal) {
-        case BUTTON0_PRESS_STATE:
-        {
-          /* Enable clock for RTC. */
-          CMU_ClockEnable(cmuClock_RTC, true);
-          /* Enable RTC. */
-          RTC_Enable(true);
-          /* Initialize segment LCD. */
-          SegmentLCD_Init(false);
-          /* Turn all LCD segments off. */
-          SegmentLCD_AllOff();
-          /* Turn on the EM0 symbol. */
-          SegmentLCD_EnergyMode(0, true);
-          /* Turn on the gecko. */
-          SegmentLCD_Symbol(LCD_SYMBOL_GECKO, true);
-          /* Write text on LCD. */
-          SegmentLCD_Write(LIGHTSENSE_MODE1_TEXT);
-          /* Go to TIMER_RESET_STATE to reset the global timer. */
-          appStateGlobal = TIMER_RESET_STATE;
-        }
-        break;
-
-        case INIT_STATE:
-        {
-          /* Enable clock for RTC. */
-          CMU_ClockEnable(cmuClock_RTC, true);
-          /* Enable RTC. */
-          RTC_Enable(true);
-          /* Initialize segment LCD. */
-          SegmentLCD_Init(false);
-          /* Turn all LCD segments off. */
-          SegmentLCD_AllOff();
-          /* Turn on the EM0 symbol. */
-          SegmentLCD_EnergyMode(0, true);
-          /* Turn on the gecko. */
-          SegmentLCD_Symbol(LCD_SYMBOL_GECKO, true);
-          /* Write text on LCD. */
-          SegmentLCD_Write(LIGHTSENSE_EXAMPLE_TEXT);
-          /* Go to TIMER_RESET_STATE to reset the global timer. */
-          appStateGlobal = TIMER_RESET_STATE;
-        }
-        break;
-
-        case TIMER_RESET_STATE:
-        {
-          /* Enable LESENSE interrupt in NVIC. */
-          NVIC_EnableIRQ(LESENSE_IRQn);
-          /* Reset RTC counter. */
-          RTC_Enable(false);
-          RTC_Enable(true);
-          appStateGlobal = AWAKE_STATE;
-        }
-        break;
-
-        case AWAKE_STATE:
-        {
-          /* Init state, LCD is active. */
-          appStateGlobal = AWAKE_STATE;
-          /* Write the number of counts. */
-          SegmentLCD_Number(eventCounter);
-          /* Check if timer has fired. */
-          if (secTimerFired) {
-            /* Prepare sensing. */
-            appStateGlobal = SENSE_PREPARE_STATE;
-            secTimerFired = false;
-            /* Disable RTC. */
-            RTC_Enable(false);
-            /* Disable clock for RTC. */
-            CMU_ClockEnable(cmuClock_RTC, false);
-          } else {
-            EMU_EnterEM2(true);
-          }
-        }
-        break;
-
-        case SENSE_PREPARE_STATE:
-        {
-          /* Disable LCD to avoid excessive current consumption */
-          SegmentLCD_Disable();
-          /* Disable LESENSE interrupt in NVIC. */
-          NVIC_DisableIRQ(LESENSE_IRQn);
-          /* Reload PCNT top value by writing to the top value buffer. */
-          PCNT_CounterReset(PCNT0);
-          PCNT_TopSet(PCNT0, LIGHTSENSE_NUMOF_EVENTS);
-          /* Go to SENSE state. */
-          appStateGlobal = SENSE_STATE;
-        }
-        break;
-
-        case SENSE_STATE:
-        {
-          /* Enter EM2. */
-          EMU_EnterEM2(true);
-        }
-        break;
-
-        case ERROR_STATE:
-        default:
-        {
-          /* Stay in ERROR_STATE. */
-          appStateGlobal = ERROR_STATE;
-        }
-        break;
-      }
-    } else { /* unknown mode */
-             /* Unknown error, go to app error state anyway. */
-      appStateGlobal = ERROR_STATE;
-    }
   }
 }
 
@@ -622,20 +397,9 @@ void LESENSE_IRQHandler(void)
     LESENSE_IntClear(LESENSE_IF_CH6);
   }
 
-  /* Check the current mode of the application. */
-  if (appModeGlobal == MODE0) {
-    /* Increase the event counter... */
     eventCounter++;
-    /* ...and go to INIT_STATE. */
-    appStateGlobal = INIT_STATE;
-  } else if (appModeGlobal == MODE1) {
-    /* LESENSE interrupts only enabled in EM0 in order to keep the MCU
-     * awake on every sensor event.
-     * Go to RESET_STATE to reset the timeout timer. */
-    appStateGlobal = TIMER_RESET_STATE;
-  } else {
-    appStateGlobal = ERROR_STATE;
-  }
+
+
 }
 
 /***************************************************************************//**
@@ -646,14 +410,6 @@ void PCNT0_IRQHandler(void)
   /* Overflow interrupt on PCNT0. */
   PCNT_IntClear(PCNT0, PCNT_IF_OF);
 
-  /* Only applies to MODE1. */
-  if (appModeGlobal == MODE1) {
-    /* Increase the counter with the number of events that triggered the PCNT
-     * overflow. */
-    eventCounter += LIGHTSENSE_NUMOF_EVENTS;
-    /* Go to INIT_STATE. */
-    appStateGlobal = INIT_STATE;
-  }
 }
 
 /***************************************************************************//**
@@ -683,13 +439,5 @@ void GPIO_ODD_IRQHandler(void)
   /* Clear interrupt flag */
   GPIO_IntClear(LIGHTSENSE_BUTTON0_FLAG);
 
-  /* Change the mode */
-  if (appModeGlobal == MODE0 ) {
-    appModeGlobal = MODE1;
-  } else {
-    appModeGlobal = MODE0;
-  }
 
-  /* Put the application to BUTTON_PRESS state. */
-  appStateGlobal = BUTTON0_PRESS_STATE;
 }
