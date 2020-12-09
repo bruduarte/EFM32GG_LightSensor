@@ -67,12 +67,10 @@ enum Mode {
  * Global variables
  ******************************************************************************/
 
-static volatile uint8_t eventCounter = 0U;
+
 static volatile enum Mode actual_mode = Mode_automatic;
 static volatile bool trackButton1 = false;
-static volatile bool lightDetected = false;
-static volatile uint32_t msTicks = 0; /* counts 1ms timeTicks */
-static volatile uint32_t msSinceLightDetected = 0;
+
 
 /***************************************************************************//**
  * Prototypes
@@ -164,7 +162,7 @@ void setupACMP(void)
     .halfBias = true,                  /* halfBias */
     .biasProg =  0x0,                  /* biasProg */
     .interruptOnFallingEdge =  false,  /* interrupt on rising edge */
-    .interruptOnRisingEdge =  true,   /* interrupt on falling edge */
+    .interruptOnRisingEdge =  false,   /* interrupt on falling edge */
     .warmTime = acmpWarmTime512,       /* 512 cycle warmup to be safe */
     .hysteresisLevel = acmpHysteresisLevel0, /* hysteresis level 0 */
     .inactiveValue = false,            /* inactive value */
@@ -180,15 +178,8 @@ void setupACMP(void)
   /* Set up ACMP negSel to VDD, posSel is controlled by LESENSE. */
   ACMP_ChannelSet(ACMP0, acmpChannelVDD, acmpChannel0);
   /* LESENSE controls ACMP thus ACMP_Enable(ACMP0) should NOT be called in order
-   * to ensure lower current consumption.
-   * ERRATA: we do not need low power now, thus ACMP_Enable(ACMP0) will be called in order to get the ACMP
-   * interruptions*/
+   * to ensure lower current consumption.*/
 
-   ACMP_IntEnable(ACMP0, ACMP_IEN_EDGE);   /* Enable edge interrupt */
-   /* Enable interrupts */
-   NVIC_ClearPendingIRQ(ACMP0_IRQn);
-   NVIC_EnableIRQ(ACMP0_IRQn);
-   ACMP_Enable(ACMP0);
 
 }
 
@@ -292,9 +283,6 @@ void setupPRS(void)
 }
 
 
-
-
-
 /***************************************************************************//**
  * @brief  Main function
  ******************************************************************************/
@@ -330,14 +318,6 @@ int main(void)
   CORE_EXIT_ATOMIC();
 
 
-   /* Enable LESENSE interrupt in NVIC. */
-   NVIC_EnableIRQ(LESENSE_IRQn);
-
-   /* Setup SysTick Timer for 1 msec interrupts  */
-   if (SysTick_Config(CMU_ClockFreqGet(cmuClock_CORE) / 1000)) {
-       // stay here forever if this configuration fails
-     while (1) ;
-   }
 
   /* Go to infinite loop. */
   while (1) {
@@ -369,43 +349,6 @@ int main(void)
 
 
   }
-}
-
-/***************************************************************************//**
- * @brief  LESENSE interrupt handler
- ******************************************************************************/
-void LESENSE_IRQHandler(void)
-{
-  /* Negative edge interrupt on LESENSE CH6. */
-  if (LESENSE_IF_CH6 & LESENSE_IntGetEnabled()) {
-    LESENSE_IntClear(LESENSE_IF_CH6);
-  }
-    eventCounter++;
-}
-
-
-/**************************************************************************//**
- * @brief ACMP0 Interrupt handler
- *****************************************************************************/
-void ACMP0_IRQHandler(void)
-{
-  /* Clear interrupt flag */
-  ACMP0->IFC = ACMP_IFC_EDGE;
-
-  lightDetected = true;
-  msSinceLightDetected = 0; // timestamp reset since last detection
-}
-
-/***************************************************************************//**
- * @brief SysTick_Handler
- *   Interrupt Service Routine for system tick counter
- * @note
- *   No overflow protection
- ******************************************************************************/
-void SysTick_Handler(void)
-{
-  msTicks++;       /* increment counter necessary in Delay()*/
-  msSinceLightDetected++;
 }
 
 
